@@ -15,9 +15,9 @@ Licensed Work:        Arrow Services
 Additional Use Grant: Limited production uses, or as otherwise permitted by
                       Arrow DAO governance vote
 
-Change Date:          for each release of lib-template-rust, the earlier of (i) two
+Change Date:          for each release of lib-ccsds, the earlier of (i) two
                       years from the release date, or (ii) a date specified at
-                      https://github.com/Arrow-air/lib-template-rust/blob/main/README.md
+                      https://github.com/Arrow-air/lib-ccsds/blob/main/README.md
 
 Change License:       GNU Affero General Public License v3.0 or later
 
