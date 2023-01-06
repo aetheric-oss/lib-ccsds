@@ -13,3 +13,9 @@ tput
 yapf
 proto
 microservices
+ccsds
+struct
+commitlint
+ccsds
+apid
+cubesat
