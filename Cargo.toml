@@ -1,13 +1,23 @@
 [package]
-name    = "lib_template_rust"
-version = "0.1.0"
-edition = "2021"              # Allowed values are 2015, 2018, 2021
-# Rust Editions: https://doc.rust-lang.org/edition-guide/index.html
+authors     = ["A.M. Smith"]
+description = "Implementation of telemetry and command packet standards."
+edition     = "2021"                                                       # Allowed values are 2015, 2018, 2021
+homepage    = "https://www.arrowair.com/docs/documentation/services/intro"
+keywords    = ["vtol", "server"]                                           # max 5
+license     = "MIT"
+name        = "lib-ccsds"
+repository  = "https://github.com/Arrow-air/lib-ccsds"
+version     = "0.1.0"
+
+categories = [
+  "aerospace::commanding",
+  "aerospace::telemetry",
+  "aerospace::protocols",
+  "aerospace::cubesat",
+  "aerospace::ccsds",
+] # max 5 -- https://crates.io/category_slugs
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-cargo-husky = "1"
 
 [dev-dependencies.cargo-husky]
 default-features = false          # Disable features which are enabled by default
@@ -15,5 +25,10 @@ features         = ["user-hooks"]
 version          = "1"
 
 [lib]
-name = "lib_template_rust"
+name = "lib_ccsds"
 path = "src/lib.rs"
+
+[dependencies]
+duplicate     = "0.4.1"
+packed_struct = { version = "0.10", default-features = false } # no_std
+snafu         = { version = "0.7", default-features = false }  # no_std
