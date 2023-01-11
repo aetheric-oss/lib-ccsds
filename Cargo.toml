@@ -23,6 +23,9 @@ categories = [
 default = ["std"]
 std     = []
 
+[dev-dependencies]
+rand = "0.8"
+
 [dev-dependencies.cargo-husky]
 default-features = false          # Disable features which are enabled by default
 features         = ["user-hooks"]
@@ -33,6 +36,8 @@ name = "lib_ccsds"
 path = "src/lib.rs"
 
 [dependencies]
-duplicate     = "0.4.1"
+crc           = "3.0.0"
+duplicate     = "0.4"
 packed_struct = { version = "0.10", default-features = false } # no_std
 snafu         = { version = "0.7", default-features = false }  # no_std
+uuid          = { version = "1.2", default-features = false }
