@@ -95,36 +95,36 @@ const HEADER_LEN: usize = 6;
 /// Packet Type (1-bit): 0 for Telemetry, 1 for Command
 #[derive(PrimitiveEnum_u8, Clone, Copy, Debug, PartialEq)]
 pub enum PacketType {
-    /// The packet concerns telemetry
+    /// (0) The packet concerns telemetry
     Telemetry = 0,
 
-    /// The packet concerns commanding
+    /// (1) The packet concerns commanding
     Command = 1,
 }
 
 /// Secondary Header Presence (1-bit): 1 if present
 #[derive(PrimitiveEnum_u8, Clone, Copy, Debug, PartialEq)]
 pub enum SecondaryHeaderFlag {
-    /// There is no secondary header present in the packet
+    /// (0) There is no secondary header present in the packet
     Absent = 0,
 
-    /// There is a secondary header present in the packet
+    /// (1) There is a secondary header present in the packet
     Present = 1,
 }
 
 /// Type of Packet Relative to Sequence
 #[derive(PrimitiveEnum_u8, Clone, Copy, Debug, PartialEq)]
 pub enum SequenceFlag {
-    /// A continuation of series of related packets
+    /// (0b00) A continuation of series of related packets
     Continued = 0b00,
 
-    /// Marks the beginning of a series of related packets
+    /// (0b01) Marks the beginning of a series of related packets
     Start = 0b01,
 
-    /// Marks the end of a series of related packets
+    /// (0b10) Marks the end of a series of related packets
     End = 0b10,
 
-    /// Unassociated with other packets
+    /// (0b11) Unassociated with other packets
     Unsegmented = 0b11,
 }
 
@@ -191,9 +191,29 @@ impl Identification {
         })
     }
 
-    /// Sets the secondary_header_flag to 1 (Present)
+    /// Sets the secondary_header_flag to 1 (Present).
     pub(super) fn set_secondary_header_flag(&mut self) {
         self.secondary_header_flag = SecondaryHeaderFlag::Present;
+    }
+
+    /// Get the secondary header flag value as a [`SecondaryHeaderFlag`].
+    pub fn secondary_header_flag(&self) -> SecondaryHeaderFlag {
+        self.secondary_header_flag
+    }
+
+    /// Get the packet type value as a [`PacketType`].
+    pub fn packet_type(&self) -> PacketType {
+        self.packet_type
+    }
+
+    /// Get the value of the APID field.
+    pub fn apid(&self) -> u16 {
+        u16::from(self.apid)
+    }
+
+    /// Get the value of the version field.
+    pub fn version(&self) -> u8 {
+        u8::from(self.version)
     }
 }
 
@@ -234,6 +254,16 @@ impl SequenceControl {
             count: count.into(),
         })
     }
+
+    /// Get the value of this field as a [`SequenceFlag`].
+    pub fn flag(&self) -> SequenceFlag {
+        self.flag
+    }
+
+    /// Get the sequence counter value.
+    pub fn count(&self) -> u16 {
+        u16::from(self.count)
+    }
 }
 
 /// CCSDS Packet Primary Header.
@@ -253,15 +283,16 @@ impl SequenceControl {
 #[derive(PackedStruct, Debug, Copy, Clone, PartialEq)]
 #[packed_struct(bit_numbering = "msb0")]
 pub struct PrimaryHeader {
-    /// Identification Section, 2 Octets
+    /// Identification Section, 2 Bytes
     #[packed_field(element_size_bytes = "2")]
-    pub identification: Identification,
+    identification: Identification,
 
-    /// Sequence Control Section, 2 Octets
+    /// Sequence Control Section, 2 Bytes
     #[packed_field(element_size_bytes = "2")]
-    pub sequence_control: SequenceControl,
+    sequence_control: SequenceControl,
 
     /// Length of coming data (in bytes) - 1
+    /// 4.1.3.5.2 CCSDS specification
     #[packed_field(endian = "msb")]
     data_len_bytes: u16,
 }
@@ -348,6 +379,16 @@ impl PrimaryHeader {
     pub(super) fn clear_data(&mut self) {
         self.data_len_bytes = 0;
     }
+
+    /// Returns a reference to this header's identification segment.
+    pub fn identification(&self) -> &Identification {
+        &self.identification
+    }
+
+    /// Returns a reference to this header's sequence control segment.
+    pub fn sequence_control(&self) -> &SequenceControl {
+        &self.sequence_control
+    }
 }
 
 /// A CCSDS packet frame.
@@ -378,17 +419,6 @@ impl<const N: usize> CcsdsPacket<N> {
     ///  N bytes in the data segment.
     pub fn builder() -> CcsdsBuilder<N> {
         CcsdsBuilder::<N>::default()
-    }
-
-    /// Returns the value of the secondary header flag field
-    ///  in the header.
-    pub fn secondary_header_flag(&self) -> SecondaryHeaderFlag {
-        self.header.identification.secondary_header_flag
-    }
-
-    /// Returns the value of the data length field in the header.
-    pub fn data_len_bytes(&self) -> u16 {
-        self.header.data_len_bytes
     }
 
     /// Writes the packet to a buffer and returns the number of bytes written.
@@ -910,7 +940,10 @@ mod builder_rep_tests {
             .with_secondary_header(&second_header)?
             .build()?;
 
-        assert_eq!(packet.secondary_header_flag(), SecondaryHeaderFlag::Present);
+        assert_eq!(
+            packet.header.identification().secondary_header_flag(),
+            SecondaryHeaderFlag::Present
+        );
 
         Ok(())
     }

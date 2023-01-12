@@ -15,6 +15,13 @@
 //! </div>
 //!
 //! Implementations of telemetry and command packet standards.
-#![no_std]
+//!
+//! # Features
+//! `std`: (Default) enable import into `std` projects.
+//!
+//! # `no_std` Support
+//! In embedded rust projects, specify `default-features=false` for
+//!  the `lib_ccsds` dependency to import the `no_std` crate.
+#![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod ccsds;
