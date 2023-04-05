@@ -1,0 +1,77 @@
+## DO NOT EDIT!
+# This file was provisioned by Terraform
+# File origin: https://github.com/Arrow-air/tf-github/tree/main/src/templates/rust-lib/.github/workflows/post_release.yml
+
+name: Post Release Events
+
+on:
+  release:
+    # See https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#release to be confused
+    # Since we want to trigger both on develop and main releases, we use published. (created does not trigger on develop)
+    types: [published]
+
+env:
+  TERM: xterm
+
+jobs:
+  rust-docs:
+    name: Generate and sync Rust docs
+    environment: production
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: rust-docs-sync
+    env:
+      AWS_S3_DOCS_RUST_DEST_PATH: "/rust-docs/${{ github.event.repository.name }}/"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Gather env vars
+        run: |
+          if printf "%s" "${{ github.ref_name }}" |grep -q -- "-develop" ; then
+            echo "BRANCHPATH=develop" >> $GITHUB_ENV
+          else
+            echo "BRANCHPATH=main" >> $GITHUB_ENV
+          fi
+
+      # Generate rust docs
+      - name:
+        run: |
+          make rust-doc
+      # Login to AWS and Sync docs to AWS S3 bucket
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: "arn:aws:iam::${{ secrets.AWS_ACCOUNT_WEBSITE }}:role/${{ secrets.AWS_S3_SERVICES_DOCS_ROLE }}"
+          role-session-name: arrow-rust-docs
+          aws-region: "us-east-2"
+      - name: Sync rust docs to S3 for processing
+        run: |
+          aws s3 sync ./target/doc/ "s3://${{ secrets.AWS_S3_SERVICES_DOCS_BUCKET }}${{ env.AWS_S3_DOCS_RUST_DEST_PATH }}${BRANCHPATH}/"  --delete --size-only
+
+  lib_publish:
+    name: Publish library to crates.io
+    runs-on: ubuntu-latest
+    concurrency:
+      group: lib-publish-${{ github.ref_name }}
+    env:
+      DOCKER_IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Gather env vars
+        run: |
+          if printf "%s" "${{ github.ref_name }}" |grep -q -- "-develop" ; then
+            echo "PUBLISH_DRY_RUN=1" >> $GITHUB_ENV
+          else
+            echo "PUBLISH_DRY_RUN=0" >> $GITHUB_ENV
+          fi
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Build and publish lib
+        run: |
+          make rust-publish
