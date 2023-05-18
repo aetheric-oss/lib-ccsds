@@ -35,7 +35,7 @@ Cargo.lock
 .DS_Store
 
 # Logger Output
-log/
+logs/
 
 # Outputs
 out/
