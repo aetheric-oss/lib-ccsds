@@ -99,9 +99,9 @@ jobs:
           sed -i 's/releases\/tag\/${{ github.sha }}/releases\/tag\/${{ steps.tag_version.outputs.new_tag }}/g' temp
           mv temp CHANGELOG.md
 
-      - name: Add release tag to .terraform_init
+      - name: Add release tag to .tofu_init
         if: ${{ github.ref_name == 'main' }}
-        run: echo "${{ steps.tag_version.outputs.new_tag }}" >> .terraform_init
+        run: echo "${{ steps.tag_version.outputs.new_tag }}" >> .tofu_init
 
       - name: Update package version
         run: |
