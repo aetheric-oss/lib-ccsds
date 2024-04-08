@@ -27,7 +27,7 @@ jobs:
       AWS_S3_DOCS_RUST_DEST_PATH: "/rust-docs/${{ github.event.repository.name }}/"
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Gather env vars
@@ -44,11 +44,11 @@ jobs:
           make rust-doc
       # Login to AWS and Sync docs to AWS S3 bucket
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: "arn:aws:iam::${{ secrets.AWS_ACCOUNT_WEBSITE }}:role/${{ secrets.AWS_S3_SERVICES_DOCS_ROLE }}"
           role-session-name: aetheric-rust-docs
-          aws-region: "us-east-2"
+          aws-region: "${{ vars.AWS_REGION }}"
       - name: Sync rust docs to S3 for processing
         run: |
           aws s3 sync ./target/doc/ "s3://${{ secrets.AWS_S3_SERVICES_DOCS_BUCKET }}${{ env.AWS_S3_DOCS_RUST_DEST_PATH }}${BRANCHPATH}/"  --delete --size-only
