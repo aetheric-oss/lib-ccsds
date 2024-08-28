@@ -44,6 +44,35 @@ jobs:
           cache-directories: "${{ github.workspace }}/.cargo"
       - run: make rust-check
 
+  cargo-deny-list:
+    name: cargo-deny (list)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v3
+    - uses: EmbarkStudios/cargo-deny-action@v1
+      with:
+        manifest-path: ./Cargo.toml
+        command: list -f human
+
+  # TODO(R5): Uncomment this block
+  # cargo-deny-check:
+  #   runs-on: ubuntu-latest
+  #   name: cargo-deny (check)
+  #   strategy:
+  #     matrix:
+  #       checks:
+  #         - advisories
+  #         - bans licenses sources
+  #   continue-on-error: true
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #   - uses: EmbarkStudios/cargo-deny-action@v1
+  #     with:
+  #       log-level: warn
+  #       manifest-path: ./Cargo.toml
+  #       command: check -s ${{ matrix.checks }}
+
   build:
     name: Build
     needs: check
