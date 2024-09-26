@@ -24,4 +24,7 @@
 //!  the `lib_ccsds` dependency to import the `no_std` crate.
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod arrow;
 pub mod ccsds;
+pub mod error;
+pub mod time;
