@@ -19,3 +19,6 @@ commitlint
 ccsds
 apid
 cubesat
+bitpacked
+subsecond
+bitlen

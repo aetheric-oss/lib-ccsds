@@ -7,6 +7,7 @@
 
 use packed_struct::prelude::{packed_bits::Bits, Integer, PackedStruct, PrimitiveEnum_u8};
 
+use crate::error::Error;
 use snafu::prelude::Snafu;
 
 /// Possible Ccsds Packet Construction/Deconstruction Errors
@@ -22,7 +23,7 @@ pub enum CcsdsError {
 
     /// Tried to add fields or construct the packet without a header
     #[snafu(display("the header must be added before data fields"))]
-    MissingHeader,
+    MissingPrimaryHeader,
 
     /// Tried to add a secondary header after user data
     #[snafu(display("the secondary header must precede user data"))]
@@ -90,7 +91,7 @@ pub const PVN_MAX: u8 = 0b111;
 pub const PACKET_LEN_MAX: usize = 65542;
 
 /// Max size of header
-const HEADER_LEN: usize = 6;
+pub const CCSDS_HEADER_LEN: usize = 6;
 
 /// Packet Type (1-bit): 0 for Telemetry, 1 for Command
 #[derive(PrimitiveEnum_u8, Clone, Copy, Debug, PartialEq)]
@@ -174,13 +175,13 @@ impl Identification {
         packet_type: PacketType,
         secondary_header_flag: SecondaryHeaderFlag,
         apid: u16,
-    ) -> Result<Identification, CcsdsError> {
+    ) -> Result<Identification, Error> {
         if version > PVN_MAX {
-            return Err(CcsdsError::ExceedsPrimaryVersionMax);
+            return Err(Error::Ccsds(CcsdsError::ExceedsPrimaryVersionMax));
         }
 
         if apid > APID_MAX {
-            return Err(CcsdsError::ExceedsApidMax);
+            return Err(Error::Ccsds(CcsdsError::ExceedsApidMax));
         }
 
         Ok(Identification {
@@ -244,9 +245,9 @@ pub struct SequenceControl {
 
 impl SequenceControl {
     /// Creates the sequence control section of the primary header.
-    pub fn new(flag: SequenceFlag, count: u16) -> Result<SequenceControl, CcsdsError> {
+    pub fn new(flag: SequenceFlag, count: u16) -> Result<SequenceControl, Error> {
         if count > SEQ_COUNT_MAX {
-            return Err(CcsdsError::ExceedsSequenceCountMax);
+            return Err(Error::Ccsds(CcsdsError::ExceedsSequenceCountMax));
         }
 
         Ok(SequenceControl {
@@ -303,7 +304,8 @@ impl PrimaryHeader {
     /// # Examples
     /// ```
     /// use crate::lib_ccsds::ccsds::*;
-    /// fn main() -> Result<(), CcsdsError> {
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
     ///    let header = PrimaryHeader::new(
     ///        0b111, // version
     ///        PacketType::Command,
@@ -323,7 +325,7 @@ impl PrimaryHeader {
         apid: u16,
         sequence_flag: SequenceFlag,
         sequence_count: u16,
-    ) -> Result<Self, CcsdsError> {
+    ) -> Result<Self, Error> {
         let id_section = Identification::new(version, packet_type, secondary_header_flag, apid)?;
 
         let seq_section = SequenceControl::new(sequence_flag, sequence_count)?;
@@ -336,7 +338,8 @@ impl PrimaryHeader {
     /// # Examples
     /// ```
     /// use crate::lib_ccsds::ccsds::*;
-    /// fn main() -> Result<(), CcsdsError> {
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
     ///    let id_section = Identification::new(
     ///        0b11, PacketType::Command, SecondaryHeaderFlag::Absent, 1)?;
     ///
@@ -358,13 +361,13 @@ impl PrimaryHeader {
     }
 
     /// Assemble a primary header from bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Result<PrimaryHeader, CcsdsError> {
-        let Ok(arr) = <&[u8; HEADER_LEN]>::try_from(bytes) else {
-            return Err(CcsdsError::PrimaryHeaderUnpackFailed);
+    pub fn decode(bytes: &[u8]) -> Result<PrimaryHeader, Error> {
+        let Ok(arr) = <&[u8; CCSDS_HEADER_LEN]>::try_from(bytes) else {
+            return Err(Error::Ccsds(CcsdsError::PrimaryHeaderUnpackFailed));
         };
 
         let Ok(header) = PrimaryHeader::unpack(arr) else {
-            return Err(CcsdsError::PrimaryHeaderUnpackFailed);
+            return Err(Error::Ccsds(CcsdsError::PrimaryHeaderUnpackFailed));
         };
 
         Ok(header)
@@ -425,12 +428,13 @@ impl<const N: usize> CcsdsPacket<N> {
     ///
     /// The target buffer must be size `N` + 6 (size of a header)
     ///  to capture the entire packet, or this will return
-    ///  [`CcsdsError::TargetBufferTooSmall`].
+    ///  [`Error::Ccsds(CcsdsError::TargetBufferTooSmall)`].
     ///
     /// # Examples
     /// ```
     /// use crate::lib_ccsds::ccsds::*;
-    /// fn main() -> Result<(), CcsdsError> {
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
     ///    let header = PrimaryHeader::new(
     ///        0b111,
     ///        PacketType::Command,
@@ -452,19 +456,19 @@ impl<const N: usize> CcsdsPacket<N> {
     ///        .with_primary_header(header)?
     ///        .with_secondary_header(&[0; n_data])?
     ///        .build()?
-    ///        .to_bytes(&mut target);
+    ///        .encode(&mut target);
     ///
     ///    Ok(())
     /// }
     /// ```
-    pub fn to_bytes(&self, target: &mut [u8]) -> Result<usize, CcsdsError> {
+    pub fn encode(&self, target: &mut [u8]) -> Result<usize, Error> {
         let Ok(packed_header) = self.header.pack() else {
-            return Err(CcsdsError::PrimaryHeaderPackFailed);
+            return Err(Error::Ccsds(CcsdsError::PrimaryHeaderPackFailed));
         };
 
         let packet_length: usize = self.data.len() + packed_header.len();
         if packet_length > target.len() {
-            return Err(CcsdsError::TargetBufferTooSmall);
+            return Err(Error::Ccsds(CcsdsError::TargetBufferTooSmall));
         }
 
         target[..packed_header.len()].copy_from_slice(&packed_header);
@@ -476,43 +480,54 @@ impl<const N: usize> CcsdsPacket<N> {
     /// Consumes the buffer and produces a CcsdsPacket with N bytes in the data region
     ///
     /// Too few bytes or too many bytes in the buffer argument will result
-    ///  in [`CcsdsError::InsufficientData`] or [`CcsdsError::ExceedsMaxDataLength`]
+    ///  in [`Error::Ccsds(CcsdsError::InsufficientData)`] or [`Error::Ccsds(CcsdsError::ExceedsMaxDataLength)`]
     ///  respectively.
     ///
     /// # Examples
     /// ```
     /// use crate::lib_ccsds::ccsds::*;
-    /// fn main() -> Result<(), CcsdsError> {
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
     ///    const n_data: usize = 1;
     ///
     ///    // n_data + 6 header bytes for a complete packet
     ///    let buffer = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
     ///
-    ///    let packet = CcsdsPacket::<n_data>::from_bytes(&buffer)?;
+    ///    let packet = CcsdsPacket::<n_data>::decode(&buffer)?;
     ///
     ///    Ok(())
     /// }
     /// ```
-    pub fn from_bytes(bytes: &[u8]) -> Result<CcsdsPacket<N>, CcsdsError> {
-        if bytes.len() < (N + HEADER_LEN) {
-            return Err(CcsdsError::InsufficientData);
+    pub fn decode(bytes: &[u8]) -> Result<CcsdsPacket<N>, Error> {
+        if bytes.len() < (N + CCSDS_HEADER_LEN) {
+            return Err(Error::Ccsds(CcsdsError::InsufficientData));
         }
 
-        if bytes.len() > (N + HEADER_LEN) {
-            return Err(CcsdsError::ExceedsMaxDataLength);
+        if bytes.len() > (N + CCSDS_HEADER_LEN) {
+            return Err(Error::Ccsds(CcsdsError::ExceedsMaxDataLength));
         }
 
-        let Ok(header) = PrimaryHeader::from_bytes(&bytes[..HEADER_LEN]) else {
-            return Err(CcsdsError::PrimaryHeaderUnpackFailed);
+        let Ok(header) = PrimaryHeader::decode(&bytes[..CCSDS_HEADER_LEN]) else {
+            return Err(Error::Ccsds(CcsdsError::PrimaryHeaderUnpackFailed));
         };
 
-        let Ok(data) = <[u8; N]>::try_from(&bytes[HEADER_LEN..]) else {
-            return Err(CcsdsError::DataUnpackFailed);
+        let Ok(data) = <[u8; N]>::try_from(&bytes[CCSDS_HEADER_LEN..]) else {
+            return Err(Error::Ccsds(CcsdsError::DataUnpackFailed));
         };
 
         let packet = CcsdsPacket { header, data };
 
         Ok(packet)
+    }
+
+    /// Returns a reference to the Primary Header of this packet
+    pub fn primary_header(&self) -> &PrimaryHeader {
+        &self.header
+    }
+
+    /// Returns a reference to the data in this packet
+    pub fn data(&self) -> &[u8; N] {
+        &self.data
     }
 }
 
@@ -535,7 +550,8 @@ impl<const N: usize> CcsdsPacket<N> {
 /// # Examples
 /// ```
 /// use crate::lib_ccsds::ccsds::*;
-/// fn main() -> Result<(), CcsdsError> {
+/// use crate::lib_ccsds::error::*;
+/// fn main() -> Result<(), Error> {
 ///    let header = PrimaryHeader::new(
 ///        0b111,
 ///        PacketType::Command,
@@ -580,17 +596,21 @@ impl<const N: usize> Default for CcsdsBuilder<N> {
 
 impl<const N: usize> CcsdsBuilder<N> {
     /// Add data to the packet.
-    fn add_data(&mut self, data: &[u8]) -> Result<(), CcsdsError> {
+    fn add_data(&mut self, data: &[u8]) -> Result<(), Error> {
+        if self.header.is_none() {
+            return Err(Error::Ccsds(CcsdsError::MissingPrimaryHeader));
+        }
+
         let total_data_bytes: usize = self.index + data.len();
 
         // Can't be larger than the data_length field can indicate (16-bits)
         if total_data_bytes > (u16::MAX as usize) {
-            return Err(CcsdsError::ExceedsMaxDataLength);
+            return Err(Error::Ccsds(CcsdsError::ExceedsMaxDataLength));
         }
 
         // Can't exceed predefined packet size
         if total_data_bytes > N {
-            return Err(CcsdsError::ExceedsMaxDataLength);
+            return Err(Error::Ccsds(CcsdsError::ExceedsMaxDataLength));
         }
 
         self.data[self.index..total_data_bytes].copy_from_slice(data);
@@ -603,7 +623,8 @@ impl<const N: usize> CcsdsBuilder<N> {
     /// # Examples
     /// ```
     /// use crate::lib_ccsds::ccsds::*;
-    /// fn main() -> Result<(), CcsdsError> {
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
     ///    let header = PrimaryHeader::new(
     ///        0b111,
     ///        PacketType::Command,
@@ -624,9 +645,9 @@ impl<const N: usize> CcsdsBuilder<N> {
     pub fn with_primary_header(
         mut self,
         mut header: PrimaryHeader,
-    ) -> Result<CcsdsBuilder<N>, CcsdsError> {
+    ) -> Result<CcsdsBuilder<N>, Error> {
         if self.header.is_some() {
-            return Err(CcsdsError::DuplicatePrimaryHeader);
+            return Err(Error::Ccsds(CcsdsError::DuplicatePrimaryHeader));
         }
 
         header.clear_data();
@@ -639,20 +660,21 @@ impl<const N: usize> CcsdsBuilder<N> {
     ///
     /// If the length of (the buffer argument + existing
     ///  data) would be greater than `N`, this will return
-    /// a [`CcsdsError::ExceedsMaxDataLength`].
+    /// a [`Error::Ccsds(CcsdsError::ExceedsMaxDataLength)`].
     ///
     /// A primary header must be present, or this
-    ///  function will return [`CcsdsError::MissingHeader`].
+    ///  function will return [`Error::Ccsds(CcsdsError::MissingPrimaryHeader)`].
     ///
     /// If a User Data field has already been added through
     ///  the builder, the function will return a
-    ///  [`CcsdsError::SecondaryHeaderAfterUserData`].
+    ///  [`Error::Ccsds(CcsdsError::SecondaryHeaderAfterUserData)`].
     ///  A secondary header MUST precede any User Data field.
     ///
     /// # Examples
     /// ```
     /// use crate::lib_ccsds::ccsds::*;
-    /// fn main() -> Result<(), CcsdsError> {
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
     ///    let header = PrimaryHeader::new(
     ///        0b111,
     ///        PacketType::Command,
@@ -670,16 +692,16 @@ impl<const N: usize> CcsdsBuilder<N> {
     ///    Ok(())
     /// }
     /// ```
-    pub fn with_secondary_header(mut self, data: &[u8]) -> Result<CcsdsBuilder<N>, CcsdsError> {
+    pub fn with_secondary_header(mut self, data: &[u8]) -> Result<CcsdsBuilder<N>, Error> {
         if self.has_user_data {
-            return Err(CcsdsError::SecondaryHeaderAfterUserData);
+            return Err(Error::Ccsds(CcsdsError::SecondaryHeaderAfterUserData));
         }
 
-        let Some(mut header) = self.header else {
-            return Err(CcsdsError::MissingHeader)
-        };
-
         self.add_data(data)?;
+
+        let Some(mut header) = self.header else {
+            return Err(Error::Ccsds(CcsdsError::MissingPrimaryHeader))
+        };
         self.has_secondary_header = true;
         header.identification.set_secondary_header_flag();
         self.header = Some(header);
@@ -690,15 +712,16 @@ impl<const N: usize> CcsdsBuilder<N> {
     ///
     /// If the length of (the buffer argument + existing
     ///  data) would be greater than `N`, this will return
-    /// a [`CcsdsError::ExceedsMaxDataLength`].
+    /// a [`Error::Ccsds(CcsdsError::ExceedsMaxDataLength)`].
     ///
     /// A primary header must be present, or this
-    ///  function will return [`CcsdsError::MissingHeader`].
+    ///  function will return [`Error::Ccsds(CcsdsError::MissingPrimaryHeader)`].
     ///
     /// # Examples
     /// ```
     /// use crate::lib_ccsds::ccsds::*;
-    /// fn main() -> Result<(), CcsdsError> {
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
     ///    let header = PrimaryHeader::new(
     ///        0b111,
     ///        PacketType::Command,
@@ -716,31 +739,89 @@ impl<const N: usize> CcsdsBuilder<N> {
     ///    Ok(())
     /// }
     /// ```
-    pub fn with_user_data(mut self, data: &[u8]) -> Result<CcsdsBuilder<N>, CcsdsError> {
+    pub fn with_user_data(mut self, data: &[u8]) -> Result<CcsdsBuilder<N>, Error> {
         self.add_data(data)?;
         self.has_user_data = true;
+        Ok(self)
+    }
+
+    /// Add zero-padding.
+    ///
+    /// If the length of (the buffer argument + existing
+    ///  data) would be greater than `N`, this will return
+    /// a [`Error::Ccsds(CcsdsError::ExceedsMaxDataLength)`].
+    ///
+    /// A primary header must be present, or this
+    ///  function will return [`Error::Ccsds(CcsdsError::MissingPrimaryHeader)`].
+    ///
+    /// # Examples
+    /// ```
+    /// use crate::lib_ccsds::ccsds::*;
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
+    ///    let header = PrimaryHeader::new(
+    ///        0b111,
+    ///        PacketType::Command,
+    ///        SecondaryHeaderFlag::Present,
+    ///        APID_MAX,
+    ///        SequenceFlag::Unsegmented,
+    ///        SEQ_COUNT_MAX,
+    ///    )?;
+    ///
+    ///    let packet = CcsdsPacket::<10>::builder()
+    ///        .with_primary_header(header)?
+    ///        .with_user_data(&[0; 8])?
+    ///        .with_padding(2)?
+    ///        .build()?;
+    ///
+    ///    Ok(())
+    /// }
+    /// ```
+    pub fn with_padding(mut self, n_bytes: usize) -> Result<CcsdsBuilder<N>, Error> {
+        if self.header.is_none() {
+            return Err(Error::Ccsds(CcsdsError::MissingPrimaryHeader));
+        }
+
+        let total_data_bytes: usize = self.index + n_bytes;
+
+        // Can't be larger than the data_length field can indicate (16-bits)
+        if total_data_bytes > (u16::MAX as usize) {
+            return Err(Error::Ccsds(CcsdsError::ExceedsMaxDataLength));
+        }
+
+        // Can't exceed predefined packet size
+        if total_data_bytes > N {
+            return Err(Error::Ccsds(CcsdsError::ExceedsMaxDataLength));
+        }
+
+        // Zero padding
+        for _ in 0..n_bytes {
+            self.data[self.index] = 0x00;
+            self.index += 1;
+        }
         Ok(self)
     }
 
     /// Builds a [`CcsdsPacket`] with N bytes in the data segment,
     ///  consuming the builder.
     ///
-    /// If `N` is 0, will return [`CcsdsError::RequiresData`].
+    /// If `N` is 0, will return [`Error::Ccsds(CcsdsError::RequiresData)`].
     ///  CCSDS requires at least one byte in the data segment.
     ///
     /// A primary header must be present, or this
-    ///  function will return [`CcsdsError::MissingHeader`].
+    ///  function will return [`Error::Ccsds(CcsdsError::MissingPrimaryHeader)`].
     ///
-    /// [`CcsdsError::MissingSecondaryHeaderAndUserData`] will be returned
+    /// [`Error::Ccsds(CcsdsError::MissingSecondaryHeaderAndUserData)`] will be returned
     ///  if no secondary header OR user data was provided.
     ///
-    /// [`CcsdsError::NotEnoughDataToBuildPacket`] will be returned if
+    /// [`Error::Ccsds(CcsdsError::NotEnoughDataToBuildPacket)`] will be returned if
     ///  less than `N` data has been provided in the data segment.
     ///
     /// # Examples
     /// ```
     /// use crate::lib_ccsds::ccsds::*;
-    /// fn main() -> Result<(), CcsdsError> {
+    /// use crate::lib_ccsds::error::*;
+    /// fn main() -> Result<(), Error> {
     ///    let header = PrimaryHeader::new(
     ///        0b111,
     ///        PacketType::Command,
@@ -759,21 +840,21 @@ impl<const N: usize> CcsdsBuilder<N> {
     ///    Ok(())
     /// }
     /// ```
-    pub fn build(self) -> Result<CcsdsPacket<N>, CcsdsError> {
+    pub fn build(self) -> Result<CcsdsPacket<N>, Error> {
         if N == 0 {
-            return Err(CcsdsError::RequiresData);
+            return Err(Error::Ccsds(CcsdsError::RequiresData));
         }
 
         let Some(mut header) = self.header else {
-            return Err(CcsdsError::MissingHeader)
+            return Err(Error::Ccsds(CcsdsError::MissingPrimaryHeader))
         };
 
         if !self.has_secondary_header && !self.has_user_data {
-            return Err(CcsdsError::MissingSecondaryHeaderAndUserData);
+            return Err(Error::Ccsds(CcsdsError::MissingSecondaryHeaderAndUserData));
         }
 
         if self.index < N {
-            return Err(CcsdsError::NotEnoughDataToBuildPacket);
+            return Err(Error::Ccsds(CcsdsError::NotEnoughDataToBuildPacket));
         }
 
         // 4.1.3.5.2 CCSDS specification
@@ -829,7 +910,10 @@ mod header_tests {
             0, // sequence count
         );
 
-        assert_eq!(header.unwrap_err(), CcsdsError::ExceedsPrimaryVersionMax);
+        assert_eq!(
+            header.unwrap_err(),
+            Error::Ccsds(CcsdsError::ExceedsPrimaryVersionMax)
+        );
     }
 
     #[test]
@@ -843,7 +927,10 @@ mod header_tests {
             SEQ_COUNT_MAX + 1, // sequence count too high!
         );
 
-        assert_eq!(header.unwrap_err(), CcsdsError::ExceedsSequenceCountMax);
+        assert_eq!(
+            header.unwrap_err(),
+            Error::Ccsds(CcsdsError::ExceedsSequenceCountMax)
+        );
     }
 
     #[test]
@@ -857,7 +944,10 @@ mod header_tests {
             0, // sequence count
         );
 
-        assert_eq!(header.unwrap_err(), CcsdsError::ExceedsApidMax);
+        assert_eq!(
+            header.unwrap_err(),
+            Error::Ccsds(CcsdsError::ExceedsApidMax)
+        );
     }
 }
 
@@ -866,7 +956,7 @@ mod builder_tests {
     use super::*;
 
     #[test]
-    fn ut_builder_not_enough_data() -> Result<(), CcsdsError> {
+    fn ut_builder_not_enough_data() -> Result<(), Error> {
         let header = PrimaryHeader::new(
             0b1, // version
             PacketType::Telemetry,
@@ -882,13 +972,16 @@ mod builder_tests {
             .with_secondary_header(&[])?
             .build();
 
-        assert_eq!(result.unwrap_err(), CcsdsError::NotEnoughDataToBuildPacket);
+        assert_eq!(
+            result.unwrap_err(),
+            Error::Ccsds(CcsdsError::NotEnoughDataToBuildPacket)
+        );
 
         Ok(())
     }
 
     #[test]
-    fn ut_builder_minimum_size() -> Result<(), CcsdsError> {
+    fn ut_builder_minimum_size() -> Result<(), Error> {
         let header = PrimaryHeader::new(
             0b1, // version
             PacketType::Telemetry,
@@ -904,7 +997,7 @@ mod builder_tests {
             .with_primary_header(header)?
             .with_secondary_header(&[])?
             .build();
-        assert_eq!(packet.unwrap_err(), CcsdsError::RequiresData);
+        assert_eq!(packet.unwrap_err(), Error::Ccsds(CcsdsError::RequiresData));
 
         Ok(())
     }
@@ -922,7 +1015,7 @@ mod builder_rep_tests {
     #[test]
     /// secondary_header_flag should set to "Present"
     ///  if secondary_header is added through builder
-    fn ut_builder_auto_toggle_secondary_header_flag() -> Result<(), CcsdsError> {
+    fn ut_builder_auto_toggle_secondary_header_flag() -> Result<(), Error> {
         let header = PrimaryHeader::new(
             0b1, // version
             PacketType::Telemetry,
@@ -951,7 +1044,7 @@ mod builder_rep_tests {
     #[test]
     /// The CCSDS Packet MUST have either
     ///  a secondary header or a user data field, or both.
-    fn ut_builder_2hdr_or_user_data() -> Result<(), CcsdsError> {
+    fn ut_builder_2hdr_or_user_data() -> Result<(), Error> {
         let header = PrimaryHeader::new(
             0b1, // version
             PacketType::Telemetry,
@@ -967,14 +1060,14 @@ mod builder_rep_tests {
 
         assert_eq!(
             packet.unwrap_err(),
-            CcsdsError::MissingSecondaryHeaderAndUserData
+            Error::Ccsds(CcsdsError::MissingSecondaryHeaderAndUserData)
         );
 
         Ok(())
     }
 
     #[test]
-    fn ut_builder_secondary_header_after_user_data() -> Result<(), CcsdsError> {
+    fn ut_builder_secondary_header_after_user_data() -> Result<(), Error> {
         let header = PrimaryHeader::new(
             0b1, // version
             PacketType::Telemetry,
@@ -993,14 +1086,14 @@ mod builder_rep_tests {
         // can't add secondary header after user_data
         assert_eq!(
             builder.unwrap_err(),
-            CcsdsError::SecondaryHeaderAfterUserData
+            Error::Ccsds(CcsdsError::SecondaryHeaderAfterUserData)
         );
 
         Ok(())
     }
 
     #[test]
-    fn ut_builder_too_much_data() -> Result<(), CcsdsError> {
+    fn ut_builder_too_much_data() -> Result<(), Error> {
         let header = PrimaryHeader::new(
             0b1, // version
             PacketType::Telemetry,
@@ -1015,13 +1108,43 @@ mod builder_rep_tests {
             .with_primary_header(header)?
             .with_secondary_header(&data)? // succeeds
             .with_user_data(&[0x00]); // add one more than max, fails
-        assert_eq!(builder.unwrap_err(), CcsdsError::ExceedsMaxDataLength);
+        assert_eq!(
+            builder.unwrap_err(),
+            Error::Ccsds(CcsdsError::ExceedsMaxDataLength)
+        );
 
         Ok(())
     }
 
     #[test]
-    fn ut_builder_duplicate_header() -> Result<(), CcsdsError> {
+    fn ut_builder_with_padding() -> Result<(), Error> {
+        let builder = CcsdsPacket::<buf_len>::builder().with_padding(0);
+        assert_eq!(
+            builder.unwrap_err(),
+            Error::Ccsds(CcsdsError::MissingPrimaryHeader)
+        );
+
+        let header = PrimaryHeader::new(
+            0b1, // version
+            PacketType::Telemetry,
+            SecondaryHeaderFlag::Present,
+            0, // apid
+            SequenceFlag::Unsegmented,
+            0, // sequence count
+        )?;
+
+        const N_PAD_BYTES: usize = 5;
+        let _ = CcsdsPacket::<buf_len>::builder()
+            .with_primary_header(header)?
+            .with_user_data(&[0x1; buf_len - N_PAD_BYTES])?
+            .with_padding(N_PAD_BYTES)?
+            .build()?; // should succeed
+
+        Ok(())
+    }
+
+    #[test]
+    fn ut_builder_duplicate_header() -> Result<(), Error> {
         let header = PrimaryHeader::new(
             0b1, // version
             PacketType::Telemetry,
@@ -1035,13 +1158,16 @@ mod builder_rep_tests {
         let builder = CcsdsPacket::<buf_len>::builder()
             .with_primary_header(header)?
             .with_primary_header(header_2);
-        assert_eq!(builder.unwrap_err(), CcsdsError::DuplicatePrimaryHeader);
+        assert_eq!(
+            builder.unwrap_err(),
+            Error::Ccsds(CcsdsError::DuplicatePrimaryHeader)
+        );
 
         Ok(())
     }
 
     #[test]
-    fn ut_builder_to_from_bytes() -> Result<(), CcsdsError> {
+    fn ut_builder_to_decode() -> Result<(), Error> {
         let header = PrimaryHeader::new(
             0b1, // version
             PacketType::Telemetry,
@@ -1059,20 +1185,20 @@ mod builder_rep_tests {
             data[x] = x as u8;
         }
 
-        let mut target: [u8; buf_len + HEADER_LEN] = [0; buf_len + HEADER_LEN];
+        let mut target: [u8; buf_len + CCSDS_HEADER_LEN] = [0; buf_len + CCSDS_HEADER_LEN];
 
         // To Bytes
         let n_written = CcsdsPacket::<buf_len>::builder()
             .with_primary_header(header)?
             .with_secondary_header(&data)? // succeeds
             .build()?
-            .to_bytes(&mut target)?;
+            .encode(&mut target)?;
 
-        assert_eq!(n_written, buf_len + HEADER_LEN);
-        assert_eq!(target.len(), HEADER_LEN + data.len());
+        assert_eq!(n_written, buf_len + CCSDS_HEADER_LEN);
+        assert_eq!(target.len(), CCSDS_HEADER_LEN + data.len());
 
         // From Bytes
-        let packet = CcsdsPacket::<buf_len>::from_bytes(&target)?;
+        let packet = CcsdsPacket::<buf_len>::decode(&target)?;
 
         // header should update to add data.len() - 1 bytes to data_length field
         // data_len value should be one less than actual number of bytes in packet
